@@ -9,13 +9,11 @@
 #define HEATER_PIN 49 // Пин питания для обогревателя
 #define TEMPERATURE_MIN 37
 #define TEMPERATURE_MAX 38
-#define DELAY_TIME 4000 //время между измерениями
 #define CH1_PIN 42 //Пин питания для термометра
 #define EEPROM_SIZE 512
 #define LORA_PIN_1 8
 #define LORA_PIN_2 9
-#define DELAY_TIME 5000
-#define LOG_INTERVAL 5000
+#define LOG_INTERVAL 12000
 #define ERROR_MESSAGE 10000
 
 
@@ -27,6 +25,10 @@ String string_convert = "";
 int index = 0;
 boolean recievedFlag = false;
 unsigned long lastLogTime = 0; 
+const float HEATER_ON_THRESHOLD = 37.0;
+const float HEATER_OFF_THRESHOLD = 38.0;
+static bool heaterState = false;
+bool mpu_working = true;
 
 
 /* -------- Функция парсинга данных от GPS -------- */
@@ -71,19 +73,24 @@ void parsing() {
 void setup() {
   Serial.begin(9600);
   Serial1.begin(9600); //Для LoRa
-  Serial2.begin(9600); // OpenLog (SD карта)
+  Serial2.begin(9600);
+  if (Serial2) {
+    Serial.println("OpenLog подключен!");
+  } else {
+    Serial.println("Openlog не подключен!");
+    while (1); // Остановить программу при ошибке
+  }
   Serial3.begin(9600); // Подключение к GPS-модулю 
   Wire.begin(); // для гироскопа
 
   byte status = mpu.begin();
   if (status != 0) {
+    mpu_working = true;
     Serial.print("Ошибка инициализации MPU6050. Код ошибки: ");
     Serial.println(status);
-    while (1);
   }
 
   Serial.println("MPU-6050 успешно инициализирован!");
-  delay(1000);
 
   dht.begin();
   pinMode(LORA_PIN_1, OUTPUT);
@@ -94,158 +101,152 @@ void setup() {
 
 
 void loop() {
-  digitalWrite(CH1_PIN, HIGH);
-  String out;
-  float humidity = dht.readHumidity();    // Считываем влажность
-  float temperature = dht.readTemperature();  // Считываем температуру (в градусах Цельсия)
-
-  delay(DELAY_TIME);
-  // Проверка на ошибки при чтении данных
-  
-  if (isnan(humidity) || isnan(temperature)) {
-    Serial.println("Ошибка чтения с датчика DHT11");
-    digitalWrite(HEATER_PIN, LOW); //выключение, если термометр сломался
-    out += String(ERROR_MESSAGE);
-    out += " ";
-    out += String(ERROR_MESSAGE);
-    out += " ";
-    humidity = ERROR_MESSAGE;
-    temperature = ERROR_MESSAGE;
-  } else {
-    out += String(humidity);
-    out += " ";
-    out += String(temperature);
-    out += " ";
-  }
-
-  /*
-  // Вывод данных в Serial Monitor
-  Serial.print("Влажность: ");
-  Serial.print(humidity);
-  Serial.print(" %\t");
-  Serial.print("Температура: ");
-  Serial.print(temperature);
-  Serial.println(" *C");
-  */
-
-  mpu.update();
-
-  // Чтение данных акселерометра
-  if (isnan(mpu.getAccX()) || mpu.getAccX() == 0) {
-    out += String(ERROR_MESSAGE);
-  } else {
-    out += String(mpu.getAccX());
-  }
-  out += " ";
-
-  if (isnan(mpu.getAccY()) || mpu.getAccY() == 0) {
-    out += String(ERROR_MESSAGE);
-  } else {
-    out += String(mpu.getAccY());
-  }
-  out += " ";
-
-  if (isnan(mpu.getAccZ()) || mpu.getAccZ() == 0) {
-    out += String(ERROR_MESSAGE);
-  } else {
-    out += String(mpu.getAccZ());
-  }
-  out += " ";
-
-  if (isnan(mpu.getGyroX()) || mpu.getGyroX() == 0) {
-    out += String(ERROR_MESSAGE);
-  } else {
-    out += String(mpu.getGyroX());
-  }
-  out += " ";
-
-  if (isnan(mpu.getGyroY()) || mpu.getGyroY() == 0) {
-    out += String(ERROR_MESSAGE);
-  } else {
-    out += String(mpu.getGyroY());
-  }
-  out += " ";
-
-  if (isnan(mpu.getGyroZ()) || mpu.getGyroZ() == 0) {
-    out += String(ERROR_MESSAGE);
-  } else {
-    out += String(mpu.getGyroZ());
-  }
-  out += " ";
-
-  if (isnan(mpu.getTemp()) || mpu.getTemp() == 0) {
-    out += String(ERROR_MESSAGE);
-  } else {
-    out += String(mpu.getTemp());
-  }
-  out += " ";
-
-
-  /*
-  Serial.print("Accel X: "); Serial.print(mpu.getAccX());
-  Serial.print(" | Accel Y: "); Serial.print(mpu.getAccY());
-  Serial.print(" | Accel Z: "); Serial.println(mpu.getAccZ());
-
-  // Чтение данных гироскопа
-  Serial.print("Gyro X: "); Serial.print(mpu.getGyroX());
-  Serial.print(" | Gyro Y: "); Serial.print(mpu.getGyroY());
-  Serial.print(" | Gyro Z: "); Serial.println(mpu.getGyroZ());
-
-  // Температура датчика
-  Serial.print("Temperature: "); Serial.print(mpu.getTemp());
-  Serial.println(" °C");
-  */
-
-  if (temperature <= TEMPERATURE_MIN) {
-    Serial.println("Обогреватель включён");
-    digitalWrite(HEATER_PIN, HIGH); 
-  } else if (temperature >= TEMPERATURE_MAX) {
-    Serial.println("Обогреватель выключен");
-    digitalWrite(HEATER_PIN, LOW); 
-  }
-
-  /*     GPS            */
-  parsing();
   unsigned long currentTime = millis();
-  if (recievedFlag) {
-    recievedFlag = false;
+  if (currentTime - lastLogTime >= LOG_INTERVAL) {
+    digitalWrite(CH1_PIN, HIGH);
+    String out;
+    float humidity = dht.readHumidity();    // Считываем влажность
+    float temperature = dht.readTemperature();  // Считываем температуру (в градусах Цельсия)
+    // Проверка на ошибки при чтении данных
     
-    String output = "!";
-    if (Data[0] == "WD") {
-      output += "WD,";
+    if (isnan(humidity) || isnan(temperature)) {
+      Serial.println("Ошибка чтения с датчика DHT11");
+      digitalWrite(HEATER_PIN, LOW); //выключение, если термометр сломался
+      out += String(ERROR_MESSAGE);
+      out += " ";
+      out += String(ERROR_MESSAGE);
+      out += " ";
+      humidity = ERROR_MESSAGE;
+      temperature = ERROR_MESSAGE;
     } else {
-      String degrees = Data[0].substring(0, 2);
-      String minutes = Data[0].substring(2);
-      double lat = degrees.toDouble() + (minutes.toDouble() / 60.0);
-      output += String(lat, 6) + ",";
+      out += String(humidity);
+      out += " ";
+      out += String(temperature);
+      out += " ";
     }
+
+    /*
+    // Вывод данных в Serial Monitor
+    Serial.print("Влажность: ");
+    Serial.print(humidity);
+    Serial.print(" %\t");
+    Serial.print("Температура: ");
+    Serial.print(temperature);
+    Serial.println(" *C");
+    */
+
     
-    if (Data[1] == "WD") {
-      output += "WD,";
+
+    // Чтение данных акселерометра
+    if (!mpu_working || isnan(mpu.getAccX()) || mpu.getAccX() == 0) {
+      out += String(ERROR_MESSAGE);
     } else {
-      String degrees = Data[1].substring(0, 3);
-      String minutes = Data[1].substring(3);
-      double lon = degrees.toDouble() + (minutes.toDouble() / 60.0);
-      output += String(lon, 6) + ",";
+      out += String(mpu.getAccX());
     }
-    
-    output += Data[2];
-    out += output;
-    if (currentTime - lastLogTime) {
-      Serial.print("Записано на SD карту: ");
-      Serial.println(out);
-      Serial2.println(out);
-      currentTime = lastLogTime;
+    out += " ";
+    if (!mpu_working || isnan(mpu.getAccY()) || mpu.getAccY() == 0) {
+      out += String(ERROR_MESSAGE);
+    } else {
+      out += String(mpu.getAccY());
     }
-    Serial1.println(out); //в эту самую как ее там антенну
-  } else {
-    if (currentTime - lastLogTime) {
-      Serial.print("Записано на SD карту: ");
-      Serial.println(out);
-      Serial2.println(out);
-      currentTime = lastLogTime;
+    out += " ";
+    if (!mpu_working || isnan(mpu.getAccZ()) || mpu.getAccZ() == 0) {
+      out += String(ERROR_MESSAGE);
+    } else {
+      out += String(mpu.getAccZ());
     }
-    Serial1.println(out);
-  }
-  delay(DELAY_TIME);  // Задержка между измерениями
+    out += " ";
+    if (!mpu_working || isnan(mpu.getGyroX()) || mpu.getGyroX() == 0) {
+      out += String(ERROR_MESSAGE);
+    } else {
+      out += String(mpu.getGyroX());
+    }
+    out += " ";
+    if (!mpu_working || isnan(mpu.getGyroY()) || mpu.getGyroY() == 0) {
+      out += String(ERROR_MESSAGE);
+    } else {
+      out += String(mpu.getGyroY());
+    }
+    out += " ";
+    if (!mpu_working || isnan(mpu.getGyroZ()) || mpu.getGyroZ() == 0) {
+      out += String(ERROR_MESSAGE);
+    } else {
+      out += String(mpu.getGyroZ());
+    }
+    out += " ";
+    if (!mpu_working || isnan(mpu.getTemp()) || mpu.getTemp() == 0) {
+      out += String(ERROR_MESSAGE);
+    } else {
+      out += String(mpu.getTemp());
+    }
+    out += " ";
+
+    /*
+    Serial.print("Accel X: "); Serial.print(mpu.getAccX());
+    Serial.print(" | Accel Y: "); Serial.print(mpu.getAccY());
+    Serial.print(" | Accel Z: "); Serial.println(mpu.getAccZ());
+
+    // Чтение данных гироскопа
+    Serial.print("Gyro X: "); Serial.print(mpu.getGyroX());
+    Serial.print(" | Gyro Y: "); Serial.print(mpu.getGyroY());
+    Serial.print(" | Gyro Z: "); Serial.println(mpu.getGyroZ());
+
+    // Температура датчика
+    Serial.print("Temperature: "); Serial.print(mpu.getTemp());
+    Serial.println(" °C");
+    */
+
+
+    if (!heaterState && temperature <= HEATER_ON_THRESHOLD) {
+      Serial.println("Обогреватель включён");
+      digitalWrite(HEATER_PIN, HIGH);
+      heaterState = true;
+    } else if (heaterState && temperature >= HEATER_OFF_THRESHOLD) {
+      Serial.println("Обогреватель выключен");
+      digitalWrite(HEATER_PIN, LOW);
+      heaterState = false;
+    }
+    parsing();
+    if (recievedFlag) {
+      recievedFlag = false;
+      
+      String output = "!";
+      if (Data[0] == "WD") {
+        output += "WD,";
+      } else {
+        String degrees = Data[0].substring(0, 2);
+        String minutes = Data[0].substring(2);
+        double lat = degrees.toDouble() + (minutes.toDouble() / 60.0);
+        output += String(lat, 6) + ",";
+      }
+      
+      if (Data[1] == "WD") {
+        output += "WD,";
+      } else {
+        String degrees = Data[1].substring(0, 3);
+        String minutes = Data[1].substring(3);
+        double lon = degrees.toDouble() + (minutes.toDouble() / 60.0);
+        output += String(lon, 6) + ",";
+      }
+      
+      output += Data[2];
+      out += output;
+      //if (currentTime - lastLogTime) {
+        Serial.print("Записано на SD карту: ");
+        Serial.println(out);
+        Serial2.println(out);
+        lastLogTime = currentTime;
+      //}
+      Serial1.println(out); //в эту самую как ее там антенну
+    } else {
+      //if (currentTime - lastLogTime) {
+        Serial.print("Записано на SD карту: ");
+        Serial.println(out);
+        Serial2.println(out);
+        lastLogTime = currentTime;
+      //}
+      Serial1.println(out);
+    }
+    lastLogTime = currentTime;
+  } 
 }
