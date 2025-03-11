@@ -2,6 +2,7 @@
 #include <Wire.h>
 #include <MPU6050_light.h>
 #include <Arduino.h>
+#include <MS5611.h>
 
 
 #define DHTPIN 2   // Пин, к которому подключен термометр
@@ -28,7 +29,9 @@ unsigned long lastLogTime = 0;
 const float HEATER_ON_THRESHOLD = 37.0;
 const float HEATER_OFF_THRESHOLD = 38.0;
 static bool heaterState = false;
-bool mpu_working = true;
+static bool mpu_working = true;
+double referencePressure; // Переменная для хранения опорного давления
+MS5611 ms5611; // Создание объекта для работы с датчиком
 
 
 /* -------- Функция парсинга данных от GPS -------- */
@@ -71,21 +74,22 @@ void parsing() {
 
 
 void setup() {
+  delay(3000);
   Serial.begin(9600);
   Serial1.begin(9600); //Для LoRa
-  Serial2.begin(9600);
+  Serial2.begin(9600); //OpenLog
   if (Serial2) {
     Serial.println("OpenLog подключен!");
   } else {
-    Serial.println("Openlog не подключен!");
-    while (1); // Остановить программу при ошибке
+    Serial.println("Openlog не подключен!"); 
   }
   Serial3.begin(9600); // Подключение к GPS-модулю 
-  Wire.begin(); // для гироскопа
+  
+  Wire.begin();
 
   byte status = mpu.begin();
   if (status != 0) {
-    mpu_working = true;
+    mpu_working = false;
     Serial.print("Ошибка инициализации MPU6050. Код ошибки: ");
     Serial.println(status);
   }
@@ -93,6 +97,14 @@ void setup() {
   Serial.println("MPU-6050 успешно инициализирован!");
 
   dht.begin();
+  if (ms5611.begin(MS5611_HIGH_RES)) {
+    Serial.println("MS5611 успешно инициализирован!"); // Запуск барометра с высоким разрешением
+  } else {
+    Serial.println("MS5611 не найден");
+  }
+  referencePressure = ms5611.readPressure(); // Чтение опорного давления
+
+
   pinMode(LORA_PIN_1, OUTPUT);
   pinMode(LORA_PIN_2, OUTPUT);
   pinMode(HEATER_PIN, OUTPUT);
@@ -102,9 +114,35 @@ void setup() {
 
 void loop() {
   unsigned long currentTime = millis();
-  if (currentTime - lastLogTime >= LOG_INTERVAL) {
+  if (currentTime - lastLogTime >= LOG_INTERVAL) { //currentTime - lastLogTime >= LOG_INTERVAL
     digitalWrite(CH1_PIN, HIGH);
     String out;
+
+    uint32_t rawTemp = ms5611.readRawTemperature(); // Чтение сырого значения температуры
+    uint32_t rawPressure = ms5611.readRawPressure(); // Чтение сырого значения давления
+    double realTemperature = ms5611.readTemperature(); // Получение реальной температуры
+    long realPressure = ms5611.readPressure(); // Получение реального давления
+    float absoluteAltitude = ms5611.getAltitude(realPressure); // Расчет абсолютной высоты
+    float relativeAltitude = ms5611.getAltitude(realPressure, referencePressure); // Расчет относительной высоты
+    if (realPressure == 0) {
+      out += String(ERROR_MESSAGE);
+      out += " ";
+      out += String(ERROR_MESSAGE);
+      out += " ";
+      out += String(ERROR_MESSAGE);
+      out += " ";
+      out += String(ERROR_MESSAGE);
+      out += " ";
+    }
+    out += String(realTemperature);
+    out += " ";
+    out += String(realPressure);
+    out += " ";
+    out += String(absoluteAltitude);
+    out += " ";
+    out += String(relativeAltitude);
+    out += " ";
+
     float humidity = dht.readHumidity();    // Считываем влажность
     float temperature = dht.readTemperature();  // Считываем температуру (в градусах Цельсия)
     // Проверка на ошибки при чтении данных
@@ -136,7 +174,7 @@ void loop() {
     */
 
     
-
+    mpu.update();
     // Чтение данных акселерометра
     if (!mpu_working || isnan(mpu.getAccX()) || mpu.getAccX() == 0) {
       out += String(ERROR_MESSAGE);
@@ -230,7 +268,11 @@ void loop() {
       }
       
       output += Data[2];
+
+
       out += output;
+
+      
       //if (currentTime - lastLogTime) {
         Serial.print("Записано на SD карту: ");
         Serial.println(out);
