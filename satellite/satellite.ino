@@ -11,6 +11,7 @@
 #define TEMPERATURE_MIN 37
 #define TEMPERATURE_MAX 38
 #define CH1_PIN 42 //Пин питания для термометра
+#define CH2_PIN 43 //Пин питания для МАДИЗа
 #define EEPROM_SIZE 512
 #define LORA_PIN_1 8
 #define LORA_PIN_2 9
@@ -109,15 +110,17 @@ void setup() {
   pinMode(LORA_PIN_2, OUTPUT);
   pinMode(HEATER_PIN, OUTPUT);
   pinMode(CH1_PIN, OUTPUT);
+  pinMode(CH2_PIN, OUTPUT);
 }
 
 
 void loop() {
+  digitalWrite(CH1_PIN, HIGH);
+  digitalWrite(CH2_PIN, HIGH);
   unsigned long currentTime = millis();
   if (currentTime - lastLogTime >= LOG_INTERVAL) { //currentTime - lastLogTime >= LOG_INTERVAL
-    digitalWrite(CH1_PIN, HIGH);
     String out;
-
+    //digitalWrite(CH1_PIN, HIGH);
     uint32_t rawTemp = ms5611.readRawTemperature(); // Чтение сырого значения температуры
     uint32_t rawPressure = ms5611.readRawPressure(); // Чтение сырого значения давления
     double realTemperature = ms5611.readTemperature(); // Получение реальной температуры
