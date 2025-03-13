@@ -3,6 +3,7 @@
 #include <MPU6050_light.h>
 #include <Arduino.h>
 #include <MS5611.h>
+#include <SPI.h>
 
 
 #define DHTPIN 2   // Пин, к которому подключен термометр
@@ -17,6 +18,7 @@
 #define LORA_PIN_2 9
 #define LOG_INTERVAL 12000
 #define ERROR_MESSAGE 10000
+#define SPISS 53
 
 
 MPU6050 mpu(Wire); //mpu
@@ -105,6 +107,10 @@ void setup() {
   }
   referencePressure = ms5611.readPressure(); // Чтение опорного давления
 
+  SPI.begin(); // Инициализация SPI
+  SPI.setClockDivider(SPI_CLOCK_DIV16); // Уменьшаем скорость SPI в 16 раз
+  pinMode(SPISS, OUTPUT);
+  digitalWrite(SPISS, HIGH); // Деактивируем устройство
 
   pinMode(LORA_PIN_1, OUTPUT);
   pinMode(LORA_PIN_2, OUTPUT);
@@ -283,6 +289,15 @@ void loop() {
         lastLogTime = currentTime;
       //}
       Serial1.println(out); //в эту самую как ее там антенну
+
+      digitalWrite(SPISS, LOW);
+      for (int i = 0; i < out.length(); ++i) {
+        SPI.transfer(out[i]);
+        delay(50);
+      }
+      SPI.transfer('\0'); 
+      digitalWrite(SPISS, HIGH); // Деактивируем устройство
+
     } else {
       //if (currentTime - lastLogTime) {
         Serial.print("Записано на SD карту: ");
@@ -291,6 +306,13 @@ void loop() {
         lastLogTime = currentTime;
       //}
       Serial1.println(out);
+      digitalWrite(SPISS, LOW);
+      for (int i = 0; i < out.length(); ++i) {
+        SPI.transfer(out[i]);
+        delay(50);
+      }
+      SPI.transfer('\0'); 
+      digitalWrite(SPISS, HIGH); // Деактивируем устройство
     }
     lastLogTime = currentTime;
   } 
