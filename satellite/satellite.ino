@@ -18,7 +18,7 @@
 #define LORA_PIN_2 9
 #define LOG_INTERVAL 12000
 #define ERROR_MESSAGE 10000
-#define SPISS 53
+#define MISO_PIN 50
 
 
 MPU6050 mpu(Wire); //mpu
@@ -35,6 +35,29 @@ static bool heaterState = false;
 static bool mpu_working = true;
 double referencePressure; // Переменная для хранения опорного давления
 MS5611 ms5611; // Создание объекта для работы с датчиком
+
+
+// SPI-переменные
+volatile bool spiDataReady = false;
+volatile String spiMessage = "";
+
+/* -------- Обработчик прерывания SPI -------- */
+ISR(SPI_STC_vect) {
+  static uint8_t spiIndex = 0;
+  static char spiBuffer[64]; // Буфер для передачи данных
+
+  if (spiDataReady) {
+    if (spiIndex < spiMessage.length()) {
+      SPDR = spiMessage[spiIndex++]; // Передача данных посимвольно
+    } else {
+      SPDR = 0; // Завершение передачи
+      spiDataReady = false;
+      spiIndex = 0;
+    }
+  } else {
+    SPDR = 0; // Если данных нет, отправляем нулевой байт
+  }
+}
 
 
 /* -------- Функция парсинга данных от GPS -------- */
@@ -107,16 +130,15 @@ void setup() {
   }
   referencePressure = ms5611.readPressure(); // Чтение опорного давления
 
-  SPI.begin(); // Инициализация SPI
-  SPI.setClockDivider(SPI_CLOCK_DIV16); // Уменьшаем скорость SPI в 16 раз
-  pinMode(SPISS, OUTPUT);
-  digitalWrite(SPISS, HIGH); // Деактивируем устройство
-
   pinMode(LORA_PIN_1, OUTPUT);
   pinMode(LORA_PIN_2, OUTPUT);
   pinMode(HEATER_PIN, OUTPUT);
   pinMode(CH1_PIN, OUTPUT);
   pinMode(CH2_PIN, OUTPUT);
+
+  SPCR |= bit(SPE);  // Включение SPI
+  SPCR |= bit(SPIE); // Включение прерываний SPI
+  pinMode(MISO_PIN, OUTPUT); // MISO должен быть OUTPUT на стороне Slave
 }
 
 
@@ -289,15 +311,8 @@ void loop() {
         lastLogTime = currentTime;
       //}
       Serial1.println(out); //в эту самую как ее там антенну
-
-      digitalWrite(SPISS, LOW);
-      for (int i = 0; i < out.length(); ++i) {
-        SPI.transfer(out[i]);
-        delay(50);
-      }
-      SPI.transfer('\0'); 
-      digitalWrite(SPISS, HIGH); // Деактивируем устройство
-
+      spiMessage = out + '\n';
+      spiDataReady = true;
     } else {
       //if (currentTime - lastLogTime) {
         Serial.print("Записано на SD карту: ");
@@ -306,13 +321,8 @@ void loop() {
         lastLogTime = currentTime;
       //}
       Serial1.println(out);
-      digitalWrite(SPISS, LOW);
-      for (int i = 0; i < out.length(); ++i) {
-        SPI.transfer(out[i]);
-        delay(50);
-      }
-      SPI.transfer('\0'); 
-      digitalWrite(SPISS, HIGH); // Деактивируем устройство
+      spiMessage = out + '\n';
+      spiDataReady = true;
     }
     lastLogTime = currentTime;
   } 
