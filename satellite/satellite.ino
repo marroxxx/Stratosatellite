@@ -8,7 +8,7 @@
 
 #define DHTPIN 2   // Пин, к которому подключен термометр
 #define DHTTYPE DHT11   // Тип датчика - DHT11
-#define HEATER_PIN 49 // Пин питания для обогревателя
+#define HEATER_PIN 48 // Пин питания для обогревателя
 #define TEMPERATURE_MIN 37
 #define TEMPERATURE_MAX 38
 #define CH1_PIN 42 //Пин питания для термометра
