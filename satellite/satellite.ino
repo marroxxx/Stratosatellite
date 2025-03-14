@@ -164,15 +164,16 @@ void loop() {
       out += " ";
       out += String(ERROR_MESSAGE);
       out += " ";
+    } else {
+      out += String(realTemperature);
+      out += " ";
+      out += String(realPressure);
+      out += " ";
+      out += String(absoluteAltitude);
+      out += " ";
+      out += String(relativeAltitude);
+      out += " ";
     }
-    out += String(realTemperature);
-    out += " ";
-    out += String(realPressure);
-    out += " ";
-    out += String(absoluteAltitude);
-    out += " ";
-    out += String(relativeAltitude);
-    out += " ";
 
     float humidity = dht.readHumidity();    // Считываем влажность
     float temperature = dht.readTemperature();  // Считываем температуру (в градусах Цельсия)
@@ -276,6 +277,7 @@ void loop() {
       heaterState = false;
     }
     parsing();
+    
     if (recievedFlag) {
       recievedFlag = false;
       
@@ -324,6 +326,7 @@ void loop() {
       spiMessage = out + '\n';
       spiDataReady = true;
     }
+
     lastLogTime = currentTime;
   } 
 }
